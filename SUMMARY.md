@@ -7,6 +7,7 @@ The application aims to bridge the gap between spoken word and digital presentat
 
 ## Core Features
 - **Real-time Speech-to-Text**: Utilizes high-performance AI models (`faster-whisper`) to transcribe live audio with low latency.
+- **Clap Detection Mode**: A specialized mode that triggers slide changes (simulated "Next" keypress) based on sudden acoustic spikes, bypassing the need for complex speech recognition when not required.
 - **Visual Feedback**: Includes a real-time VU meter to monitor microphone levels and an activity log for system diagnostics and transcription results.
 - **Keyword Trigger System**: A configurable system that maps spoken phrases (e.g., "scripture", "prayer") to specific actions.
 - **Multi-threaded Architecture**: Ensures the UI remains responsive while the heavy lifting of audio processing and transcription happens in the background.

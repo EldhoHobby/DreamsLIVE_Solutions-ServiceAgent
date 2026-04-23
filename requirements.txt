@@ -4,3 +4,4 @@ numpy
 PyMuPDF
 python-pptx
 Pillow
+pyautogui

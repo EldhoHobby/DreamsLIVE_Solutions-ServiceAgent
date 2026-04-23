@@ -9,6 +9,8 @@ import queue
 import pyaudio
 import numpy as np
 import json
+import pyautogui
+import time
 from faster_whisper import WhisperModel
 
 # --- CONFIGURATION ---
@@ -21,8 +23,14 @@ LANGUAGE = None        # Set to 'ml' for Malayalam or 'en' for English to go eve
 speech_queue = queue.Queue()
 audio_level_queue = queue.Queue()
 is_listening = False
+is_clap_mode = False
 CONFIG = {}
 TRIGGERS = {}
+
+# --- CLAP DETECTION SETTINGS ---
+CLAP_THRESHOLD = 15000  # Sensitivity (higher = less sensitive)
+CLAP_COOLDOWN = 0.5      # Seconds between triggers
+last_clap_time = 0
 
 def load_config():
     global CONFIG, TRIGGERS
@@ -76,6 +84,15 @@ def audio_transcription_thread():
             # Update VU Meter
             peak = np.abs(audio_int16).max()
             audio_level_queue.put(min(100, int((peak / 32767) * 100)))
+
+            # CLAP DETECTION
+            global last_clap_time
+            if is_clap_mode and peak > CLAP_THRESHOLD:
+                current_time = time.time()
+                if current_time - last_clap_time > CLAP_COOLDOWN:
+                    speech_queue.put("ACTION: CLAP DETECTED! → Next Slide")
+                    pyautogui.press('right')
+                    last_clap_time = current_time
 
             # Accumulate audio
             audio_float32 = audio_int16.astype(np.float32) / 32768.0
@@ -160,6 +177,16 @@ def update_ui():
     except queue.Empty: pass
     root.after(40, update_ui)
 
+def toggle_clap():
+    global is_clap_mode
+    is_clap_mode = not is_clap_mode
+    if is_clap_mode:
+        clap_btn.config(text="CLAP MODE: ON", bg="#1e8e3e")
+        speech_queue.put("SYSTEM: Clap Detection Enabled.")
+    else:
+        clap_btn.config(text="CLAP MODE: OFF", bg="#5f6368")
+        speech_queue.put("SYSTEM: Clap Detection Disabled.")
+
 def toggle():
     global is_listening
     if not is_listening:
@@ -171,10 +198,19 @@ def toggle():
         is_listening = False
         btn.config(text="START SERVICE", bg="#1a73e8")
 
-# Control Button
-btn = tk.Button(root, text="START SERVICE", bg="#1a73e8", fg="white", font=("Nirmala UI", 10, "bold"), 
+# Controls Frame
+controls = tk.Frame(root, bg="#f8f9fa")
+controls.pack(fill="x", padx=30, pady=10)
+
+# Main Start Button
+btn = tk.Button(controls, text="START SERVICE", bg="#1a73e8", fg="white", font=("Nirmala UI", 10, "bold"),
                command=toggle, pady=12, relief="flat", cursor="hand2")
-btn.pack(fill="x", padx=30, pady=30)
+btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+# Clap Toggle Button
+clap_btn = tk.Button(controls, text="CLAP MODE: OFF", bg="#5f6368", fg="white", font=("Nirmala UI", 10, "bold"),
+                    command=toggle_clap, pady=12, relief="flat", cursor="hand2")
+clap_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
 
 update_ui()
 root.mainloop()

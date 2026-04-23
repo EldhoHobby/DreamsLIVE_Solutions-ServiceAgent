@@ -24,6 +24,7 @@ The current implementation of the Service Agent provides a solid foundation for 
 ### C. Logic & Reliability
 - **Keyword Matching**: Simple keyword matching can be prone to "false positives."
     - *Recommendation*: Implement a small "cool-down" period or confirmation logic for triggers.
+- **Acoustic Reliability**: Added a **Clap Detection** fallback. This addresses cases where Speech-to-Text may be unreliable due to background noise or accent variety. It provides a deterministic, non-verbal way to control presentations.
 - **Buffer Handling**: The current overlap (0.3s) is good, but VAD (Voice Activity Detection) parameters might need tuning depending on the environment noise.
 
 ## 4. Stability & Security
