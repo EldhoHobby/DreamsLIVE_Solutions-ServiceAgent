@@ -1,0 +1,33 @@
+{
+  "service_types": [
+    "Sunday Morning Service",
+    "Wednesday Bible Study",
+    "Friday Night Prayer",
+    "Youth Meeting",
+    "Special Event"
+  ],
+  "dates": [
+    "2026-04-19",
+    "2026-04-22",
+    "2026-04-26",
+    "Select Date..."
+  ],
+  "triggers": {
+    "scripture reading": {
+      "action": "open",
+      "keyword": "scripture"
+    },
+    "opening prayer": {
+      "action": "open",
+      "keyword": "prayer"
+    },
+    "sermon notes": {
+      "action": "open",
+      "keyword": "sermon"
+    },
+    "closing prayer": {
+      "action": "open",
+      "keyword": "closing"
+    }
+  }
+}
