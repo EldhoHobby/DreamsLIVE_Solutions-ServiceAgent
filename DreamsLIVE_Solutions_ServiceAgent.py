@@ -8,7 +8,21 @@ import threading
 import queue
 import pyaudio
 import numpy as np
-from faster_whisper import WhisperModel
+import json
+import time
+
+# --- DEFENSIVE IMPORTS ---
+try:
+    import pyautogui
+    PYAUTOGUI_AVAILABLE = True
+except ImportError:
+    PYAUTOGUI_AVAILABLE = False
+
+try:
+    from faster_whisper import WhisperModel
+    WHISPER_AVAILABLE = True
+except ImportError:
+    WHISPER_AVAILABLE = False
 
 # --- CONFIGURATION ---
 MODEL_SIZE = "tiny"    # 'tiny' is the fastest for CPU usage
@@ -20,10 +34,42 @@ LANGUAGE = None        # Set to 'ml' for Malayalam or 'en' for English to go eve
 speech_queue = queue.Queue()
 audio_level_queue = queue.Queue()
 is_listening = False
+is_clap_mode = False
+CONFIG = {}
+TRIGGERS = {}
+
+# --- CLAP DETECTION SETTINGS ---
+CLAP_THRESHOLD = 15000  # Sensitivity (higher = less sensitive)
+CLAP_COOLDOWN = 0.5      # Seconds between triggers
+last_clap_time = 0
+
+def load_config():
+    global CONFIG, TRIGGERS
+    try:
+        if os.path.exists("config.json"):
+            with open("config.json", "r") as f:
+                CONFIG = json.load(f)
+                TRIGGERS = CONFIG.get("triggers", {})
+        else:
+            speech_queue.put("SYSTEM: config.json not found.")
+    except Exception as e:
+        speech_queue.put(f"SYSTEM: Error loading config: {e}")
+
+def handle_trigger(trigger_name, action):
+    # Placeholder for actual file opening logic
+    speech_queue.put(f"ACTION: Executing '{action}' for '{trigger_name}'")
+    # In a real scenario, we'd look for the file in ServiceFiles/
+    # For now, we just log it.
 
 def audio_transcription_thread():
     global is_listening
     
+    if not WHISPER_AVAILABLE:
+        speech_queue.put("ERROR: 'faster-whisper' library not found.")
+        speech_queue.put("Please run setup_env.bat to install dependencies.")
+        is_listening = False
+        return
+
     try:
         # Load the fastest available model
         speech_queue.put(f"SYSTEM: Loading {MODEL_SIZE} engine...")
@@ -56,6 +102,21 @@ def audio_transcription_thread():
             peak = np.abs(audio_int16).max()
             audio_level_queue.put(min(100, int((peak / 32767) * 100)))
 
+            # CLAP DETECTION
+            global last_clap_time
+            if is_clap_mode and peak > CLAP_THRESHOLD:
+                current_time = time.time()
+                if current_time - last_clap_time > CLAP_COOLDOWN:
+                    if PYAUTOGUI_AVAILABLE:
+                        speech_queue.put("ACTION: CLAP DETECTED! → Next Slide")
+                        try:
+                            pyautogui.press('right')
+                        except Exception as e:
+                            speech_queue.put(f"ERROR: Slide change failed: {e}")
+                    else:
+                        speech_queue.put("ACTION: CLAP DETECTED! (Slide change skipped - pyautogui missing)")
+                    last_clap_time = current_time
+
             # Accumulate audio
             audio_float32 = audio_int16.astype(np.float32) / 32768.0
             audio_buffer.extend(audio_float32)
@@ -71,8 +132,16 @@ def audio_transcription_thread():
                 )
                 
                 for segment in segments:
-                    if segment.text.strip():
-                        speech_queue.put(f"RESULT:{segment.text.strip()}")
+                    text = segment.text.strip()
+                    if text:
+                        speech_queue.put(f"RESULT:{text}")
+                        # Keyword Trigger Check
+                        text_lower = text.lower()
+                        for name, info in TRIGGERS.items():
+                            keyword = info.get("keyword", "").lower()
+                            if keyword and keyword in text_lower:
+                                speech_queue.put(f"SYSTEM: Keyword '{keyword}' detected!")
+                                handle_trigger(name, info.get("action", "open"))
                 
                 # Clear buffer but keep 0.3s overlap to avoid cutting words
                 audio_buffer = audio_buffer[-4800:] 
@@ -121,6 +190,9 @@ def update_ui():
             log_box.config(state='normal')
             if msg.startswith("RESULT:"):
                 log_box.insert(tk.END, f"● {msg.replace('RESULT:', '')}\n")
+            elif msg.startswith("ACTION:"):
+                log_box.insert(tk.END, f"▶ {msg}\n", "action")
+                log_box.tag_config("action", foreground="#1e8e3e", font=("Nirmala UI", 11, "bold"))
             else:
                 log_box.insert(tk.END, f"[SYSTEM] {msg}\n")
             log_box.see(tk.END)
@@ -128,9 +200,25 @@ def update_ui():
     except queue.Empty: pass
     root.after(40, update_ui)
 
+def toggle_clap():
+    global is_clap_mode
+
+    if not PYAUTOGUI_AVAILABLE and not is_clap_mode:
+        speech_queue.put("WARNING: 'pyautogui' not found. Slide control disabled.")
+        speech_queue.put("Please run setup_env.bat to install dependencies.")
+
+    is_clap_mode = not is_clap_mode
+    if is_clap_mode:
+        clap_btn.config(text="CLAP MODE: ON", bg="#1e8e3e")
+        speech_queue.put("SYSTEM: Clap Detection Enabled.")
+    else:
+        clap_btn.config(text="CLAP MODE: OFF", bg="#5f6368")
+        speech_queue.put("SYSTEM: Clap Detection Disabled.")
+
 def toggle():
     global is_listening
     if not is_listening:
+        load_config()
         is_listening = True
         btn.config(text="STOP SERVICE", bg="#d93025")
         threading.Thread(target=audio_transcription_thread, daemon=True).start()
@@ -138,10 +226,19 @@ def toggle():
         is_listening = False
         btn.config(text="START SERVICE", bg="#1a73e8")
 
-# Control Button
-btn = tk.Button(root, text="START SERVICE", bg="#1a73e8", fg="white", font=("Nirmala UI", 10, "bold"), 
+# Controls Frame
+controls = tk.Frame(root, bg="#f8f9fa")
+controls.pack(fill="x", padx=30, pady=10)
+
+# Main Start Button
+btn = tk.Button(controls, text="START SERVICE", bg="#1a73e8", fg="white", font=("Nirmala UI", 10, "bold"),
                command=toggle, pady=12, relief="flat", cursor="hand2")
-btn.pack(fill="x", padx=30, pady=30)
+btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+# Clap Toggle Button
+clap_btn = tk.Button(controls, text="CLAP MODE: OFF", bg="#5f6368", fg="white", font=("Nirmala UI", 10, "bold"),
+                    command=toggle_clap, pady=12, relief="flat", cursor="hand2")
+clap_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
 
 update_ui()
 root.mainloop()
