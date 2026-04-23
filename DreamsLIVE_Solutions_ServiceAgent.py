@@ -9,9 +9,20 @@ import queue
 import pyaudio
 import numpy as np
 import json
-import pyautogui
 import time
-from faster_whisper import WhisperModel
+
+# --- DEFENSIVE IMPORTS ---
+try:
+    import pyautogui
+    PYAUTOGUI_AVAILABLE = True
+except ImportError:
+    PYAUTOGUI_AVAILABLE = False
+
+try:
+    from faster_whisper import WhisperModel
+    WHISPER_AVAILABLE = True
+except ImportError:
+    WHISPER_AVAILABLE = False
 
 # --- CONFIGURATION ---
 MODEL_SIZE = "tiny"    # 'tiny' is the fastest for CPU usage
@@ -53,6 +64,12 @@ def handle_trigger(trigger_name, action):
 def audio_transcription_thread():
     global is_listening
     
+    if not WHISPER_AVAILABLE:
+        speech_queue.put("ERROR: 'faster-whisper' library not found.")
+        speech_queue.put("Please run setup_env.bat to install dependencies.")
+        is_listening = False
+        return
+
     try:
         # Load the fastest available model
         speech_queue.put(f"SYSTEM: Loading {MODEL_SIZE} engine...")
@@ -90,8 +107,14 @@ def audio_transcription_thread():
             if is_clap_mode and peak > CLAP_THRESHOLD:
                 current_time = time.time()
                 if current_time - last_clap_time > CLAP_COOLDOWN:
-                    speech_queue.put("ACTION: CLAP DETECTED! → Next Slide")
-                    pyautogui.press('right')
+                    if PYAUTOGUI_AVAILABLE:
+                        speech_queue.put("ACTION: CLAP DETECTED! → Next Slide")
+                        try:
+                            pyautogui.press('right')
+                        except Exception as e:
+                            speech_queue.put(f"ERROR: Slide change failed: {e}")
+                    else:
+                        speech_queue.put("ACTION: CLAP DETECTED! (Slide change skipped - pyautogui missing)")
                     last_clap_time = current_time
 
             # Accumulate audio
@@ -179,6 +202,11 @@ def update_ui():
 
 def toggle_clap():
     global is_clap_mode
+
+    if not PYAUTOGUI_AVAILABLE and not is_clap_mode:
+        speech_queue.put("WARNING: 'pyautogui' not found. Slide control disabled.")
+        speech_queue.put("Please run setup_env.bat to install dependencies.")
+
     is_clap_mode = not is_clap_mode
     if is_clap_mode:
         clap_btn.config(text="CLAP MODE: ON", bg="#1e8e3e")
