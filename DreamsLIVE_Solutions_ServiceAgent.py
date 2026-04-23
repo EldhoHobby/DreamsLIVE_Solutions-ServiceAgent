@@ -8,6 +8,7 @@ import threading
 import queue
 import pyaudio
 import numpy as np
+import json
 from faster_whisper import WhisperModel
 
 # --- CONFIGURATION ---
@@ -20,6 +21,26 @@ LANGUAGE = None        # Set to 'ml' for Malayalam or 'en' for English to go eve
 speech_queue = queue.Queue()
 audio_level_queue = queue.Queue()
 is_listening = False
+CONFIG = {}
+TRIGGERS = {}
+
+def load_config():
+    global CONFIG, TRIGGERS
+    try:
+        if os.path.exists("config.json"):
+            with open("config.json", "r") as f:
+                CONFIG = json.load(f)
+                TRIGGERS = CONFIG.get("triggers", {})
+        else:
+            speech_queue.put("SYSTEM: config.json not found.")
+    except Exception as e:
+        speech_queue.put(f"SYSTEM: Error loading config: {e}")
+
+def handle_trigger(trigger_name, action):
+    # Placeholder for actual file opening logic
+    speech_queue.put(f"ACTION: Executing '{action}' for '{trigger_name}'")
+    # In a real scenario, we'd look for the file in ServiceFiles/
+    # For now, we just log it.
 
 def audio_transcription_thread():
     global is_listening
@@ -71,8 +92,16 @@ def audio_transcription_thread():
                 )
                 
                 for segment in segments:
-                    if segment.text.strip():
-                        speech_queue.put(f"RESULT:{segment.text.strip()}")
+                    text = segment.text.strip()
+                    if text:
+                        speech_queue.put(f"RESULT:{text}")
+                        # Keyword Trigger Check
+                        text_lower = text.lower()
+                        for name, info in TRIGGERS.items():
+                            keyword = info.get("keyword", "").lower()
+                            if keyword and keyword in text_lower:
+                                speech_queue.put(f"SYSTEM: Keyword '{keyword}' detected!")
+                                handle_trigger(name, info.get("action", "open"))
                 
                 # Clear buffer but keep 0.3s overlap to avoid cutting words
                 audio_buffer = audio_buffer[-4800:] 
@@ -121,6 +150,9 @@ def update_ui():
             log_box.config(state='normal')
             if msg.startswith("RESULT:"):
                 log_box.insert(tk.END, f"● {msg.replace('RESULT:', '')}\n")
+            elif msg.startswith("ACTION:"):
+                log_box.insert(tk.END, f"▶ {msg}\n", "action")
+                log_box.tag_config("action", foreground="#1e8e3e", font=("Nirmala UI", 11, "bold"))
             else:
                 log_box.insert(tk.END, f"[SYSTEM] {msg}\n")
             log_box.see(tk.END)
@@ -131,6 +163,7 @@ def update_ui():
 def toggle():
     global is_listening
     if not is_listening:
+        load_config()
         is_listening = True
         btn.config(text="STOP SERVICE", bg="#d93025")
         threading.Thread(target=audio_transcription_thread, daemon=True).start()
